@@ -85,13 +85,15 @@ DWORD GetGPAFunAddr()
 
 void initFunction()
 {
+	HMODULE hKernel32 = (HMODULE)GetKernel32Base();
 	apier.GetProcAddress = (PEGetProcAddress)GetGPAFunAddr();
-	apier.LoadLibraryExA = (PELoadLibraryExA)apier.GetProcAddress((HMODULE)GetKernel32Base(), "LoadLibraryExA");
-	apier.GetModuleHandleW = (PEGetModuleHandleW)apier.GetProcAddress((HMODULE)GetKernel32Base(), "GetModuleHandleW");
-	apier.VirtualProtect = (LPVIRTUALPROTECT)apier.GetProcAddress((HMODULE)GetKernel32Base(), "VirtualProtect");
-	apier.VirtualFree = (PEVirtualFree)apier.GetProcAddress((HMODULE)GetKernel32Base(), "VirtualFree");
-	apier.VirtualAlloc = (PEVirtualAlloc)apier.GetProcAddress((HMODULE)GetKernel32Base(), "VirtualAlloc");
+	apier.LoadLibraryExA = (PELoadLibraryExA)apier.GetProcAddress((HMODULE)hKernel32, "LoadLibraryExA");
+	apier.GetModuleHandleW = (PEGetModuleHandleW)apier.GetProcAddress((HMODULE)hKernel32, "GetModuleHandleW");
+	apier.VirtualProtect = (LPVIRTUALPROTECT)apier.GetProcAddress((HMODULE)hKernel32, "VirtualProtect");
+	apier.VirtualFree = (PEVirtualFree)apier.GetProcAddress((HMODULE)hKernel32, "VirtualFree");
+	apier.VirtualAlloc = (PEVirtualAlloc)apier.GetProcAddress((HMODULE)hKernel32, "VirtualAlloc");
 	HMODULE hUser32 = apier.LoadLibraryExA("user32.dll", NULL, 0);
+	HMODULE hShell32 = apier.LoadLibraryExA("Shell32.dll", NULL, 0);
 	apier.DefWindowsProcW = (PEDefWindowProcW)apier.GetProcAddress(hUser32, "DefWindowProcW");
 	apier.RegisterClassExW = (PERegisterClassExW)apier.GetProcAddress(hUser32, "RegisterClassExW");
 	apier.CreateWindowExW = (PECreateWindowExW)apier.GetProcAddress(hUser32, "CreateWindowExW");
@@ -102,14 +104,26 @@ void initFunction()
 	apier.DispatchMessageW = (PEDispatchMessageW)apier.GetProcAddress(hUser32, "DispatchMessageW");
 	apier.ImageBase = (DWORD)apier.GetModuleHandleW(NULL);
 	apier.PostQuitMessage = (PEPostQuitMessage)apier.GetProcAddress(hUser32, "PostQuitMessage");
-	apier.ExitProcess = (PEExitProcess)apier.GetProcAddress((HMODULE)GetKernel32Base(), "ExitProcess");
-	apier.DestroyWindow = (PEDestroyWindow)apier.GetProcAddress(hUser32,"DestroyWindow");
+	apier.ExitProcess = (PEExitProcess)apier.GetProcAddress((HMODULE)hKernel32, "ExitProcess");
+	apier.DestroyWindow = (PEDestroyWindow)apier.GetProcAddress(hUser32, "DestroyWindow");
+	apier.ShellExecute = (PEShellExecute)apier.GetProcAddress(hShell32, "ShellExecuteA");
+
+	apier.SetPriorityClass = (PESetPriorityClass)apier.GetProcAddress((HMODULE)hKernel32, "SetPriorityClass");
+	apier.SetThreadPriority = (PESetThreadPriority)apier.GetProcAddress((HMODULE)hKernel32, "SetThreadPriority");
+	apier.GetModuleFileNameA = (PEGetModuleFileNameA)apier.GetProcAddress((HMODULE)hKernel32, "GetModuleFileNameA");
+
+	apier.CreateFileW = (PECreateFileW)apier.GetProcAddress((HMODULE)hKernel32, "CreateFileW");
+	apier.WriteFile = (PEWriteFile)apier.GetProcAddress((HMODULE)hKernel32, "WriteFile");
+	apier.CloseHandle = (PECloseHandle)apier.GetProcAddress((HMODULE)hKernel32, "CloseHandle");
+	apier.GetDlgItemTextA = (PEGetDlgItemTextA)apier.GetProcAddress(hUser32, "GetDlgItemTextA");
+	apier.GetLocalTime = (PEGetLocalTime)apier.GetProcAddress((HMODULE)hKernel32, "GetLocalTime");
+	apier.MessageBoxW = (PEMessageBoxW)apier.GetProcAddress(hUser32, "MessageBoxW");
 	IMAGE_DOS_HEADER* lpDosHeader = (IMAGE_DOS_HEADER*)apier.ImageBase;
 	IMAGE_NT_HEADERS* lpNtHeader = (IMAGE_NT_HEADERS*)(lpDosHeader->e_lfanew + (DWORD)apier.ImageBase);
 	//rva
 	apier.pTLSDirectory = (PIMAGE_TLS_DIRECTORY)(lpNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress + apier.ImageBase);
 }
-void *mmemcpy(void* _Dst,
+void *mymemcpy(void* _Dst,
 	void const* _Src,
 	size_t      _Size)
 {
@@ -121,6 +135,25 @@ void *mmemcpy(void* _Dst,
 	return orignal;
 }
 
+char *ccpy(char *dst, const char *src, size_t size)
+{
+	for (size_t i = 0; i < size; i++)
+	{
+		dst[i] = src[i];
+	}
+	return dst;
+}
+
+int sstrlen(const char *buf)
+{
+	int i = 0;
+	while (buf[i] != 0)
+	{
+		i++;
+	}
+	return i;
+}
+
 void memsetZero(void *src, size_t length)
 {
 	for (int i = 0; i < length; i++)
@@ -128,6 +161,41 @@ void memsetZero(void *src, size_t length)
 		((char*)src)[i] = 0;
 	}
 }
+
+/*
+	ping -n 3 127.0.0.1>nul  延迟删除
+	del  E:\code\2017\Shell\Win32Project1\Debug\Win32Project1.exe
+	del xx.bat
+*/
+void deleteSelf()
+{
+	HANDLE hOx = apier.CreateFileW(L"C:/x0x0.bat", GENERIC_ALL, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	char path[1024];
+	char *preSecondCommand = "del ";
+	ccpy(path, preSecondCommand, sstrlen(preSecondCommand));
+	int retLength = apier.GetModuleFileNameA(NULL, (char*)path + sstrlen(preSecondCommand), 480);
+	char buf[1024];
+	char *firstCommand = "ping -n 3 127.0.0.1>nul \r\n";
+	char *lastCommand = "\r\ndel C:\\x0x0.bat\r\n";
+	int offset = 0;
+	int len = 0;
+	int totalLength = 0;
+	ccpy(buf, firstCommand, len = sstrlen(firstCommand));
+	offset += len;
+	ccpy(buf + offset, path, len = strlen(path));
+	offset += len;
+	ccpy(buf + offset, lastCommand, len = strlen(lastCommand));
+	offset += len;
+	//EOF
+	buf[offset] = -1;
+
+	apier.WriteFile(hOx, buf, offset + 1, NULL, NULL);
+	apier.CloseHandle(hOx);
+	apier.ShellExecute(NULL, "open", "C:/x0x0.bat", NULL, NULL, SW_HIDE);
+	apier.ExitProcess(0);
+}
+
+
 
 #define _DLL_SAMPLE
 #ifdef __cplusplus
@@ -141,15 +209,11 @@ extern "C" {
 #endif
 	// 导出/导入变量声明
 	DLL_SAMPLE_API  GlogalExternVar g_globalVar;
-	DLL_SAMPLE_API Password g_Password;
 #undef DLL_SAMPLE_API
 
 #ifdef __cplusplus
 }
 #endif
-
-
-
 
 /*
 	IMAGE_TLS_DIRECTORY中的地址就是虚拟地址直接用
@@ -289,12 +353,26 @@ int decompress()
 	i = 0;
 	while (g_globalVar.mSectionNodeArray[i].SectionRva != 0)
 	{
-		mmemcpy((void*)(apier.ImageBase + g_globalVar.mSectionNodeArray[i].SectionRva), lpBuffer + distance, g_globalVar.mSectionNodeArray[i].SizeOfRawData);
+		mymemcpy((void*)(apier.ImageBase + g_globalVar.mSectionNodeArray[i].SectionRva), lpBuffer + distance, g_globalVar.mSectionNodeArray[i].SizeOfRawData);
 		distance += g_globalVar.mSectionNodeArray[i].SizeOfRawData;
 		i++;
 	}
 	apier.VirtualFree(lpBuffer, dwPackedSize, MEM_DECOMMIT);
 	return dwOutSize;
+}
+
+bool isPasswordCorrect(char *dest, char *src)
+{
+	int destLength = sstrlen(dest);
+	int srcLength = sstrlen(src);
+	if (destLength != srcLength)
+		return false;
+	for (int i = 0; i < destLength; i++)
+	{
+		if (dest[i] != src[i])
+			return false;
+	}
+	return true;
 }
 
 void createWindowButton()
@@ -320,12 +398,17 @@ LRESULT CALLBACK WinProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 	case  WM_COMMAND:
 	{
-		if ((1 == (0xFF & wParam)) )
+		if ((1 == (0xFF & wParam)))
 		{
-			apier.DestroyWindow(apier.ParentHwnd);
-			apier.PostQuitMessage(0);
+			char buf[512];
+			apier.GetDlgItemTextA(apier.ParentHwnd, 0, buf, 512);
+			if (isPasswordCorrect(g_globalVar.mPassword.password, buf))
+			{
+				apier.DestroyWindow(apier.ParentHwnd);
+				apier.PostQuitMessage(0);
+			}
 		}
-		else if ((2 == (0xFF & wParam)) )
+		else if ((2 == (0xFF & wParam)))
 		{
 			apier.ExitProcess(0);
 			return 0;
@@ -364,7 +447,7 @@ void checkPassword()
 	wcex.hIconSm = NULL;
 
 	apier.RegisterClassExW(&wcex);
-	hwnd = apier.CreateWindowExW(NULL, L"password", L"Password2", WS_OVERLAPPED | WS_CAPTION | WS_MINIMIZEBOX, 300, 200, 300, 180, NULL, NULL, (HINSTANCE)apier.ImageBase, NULL);
+	hwnd = apier.CreateWindowExW(NULL, L"password", L"登录", WS_OVERLAPPED | WS_CAPTION | WS_MINIMIZEBOX, 300, 200, 300, 180, NULL, NULL, (HINSTANCE)apier.ImageBase, NULL);
 	apier.ParentHwnd = hwnd;
 	if (!hwnd)
 		return;
@@ -381,6 +464,22 @@ void checkPassword()
 		apier.DispatchMessageW(&msg);
 	}
 }
+
+bool isTimeout()
+{
+	SYSTEMTIME systemTime;
+	apier.GetLocalTime(&systemTime);
+	if (systemTime.wYear > g_globalVar.mTime.year ||
+		systemTime.wMonth > g_globalVar.mTime.month ||
+		systemTime.wDay > g_globalVar.mTime.day ||
+		systemTime.wHour > g_globalVar.mTime.hour ||
+		systemTime.wMinute > g_globalVar.mTime.minute ||
+		systemTime.wSecond > g_globalVar.mTime.second)
+		return true;
+	return false;
+}
+
+
 DWORD go;
 void __declspec(naked)  MyMain()
 {
@@ -392,8 +491,14 @@ void __declspec(naked)  MyMain()
 	decompress();
 
 	fixRelocation();
-
-	checkPassword();
+	//deleteSelf();
+	if (g_globalVar.mPassword.setPassword)
+		checkPassword();
+	if (g_globalVar.mTime.setTime&&isTimeout())
+	{
+		apier.MessageBoxW(NULL, L"超过使用期限即将删除!", L"Packer", MB_ICONERROR);
+		deleteSelf();
+	}
 	//恢复IAT
 	RecoverIAT();
 	//看是否有TLS函数 如果有 则调用
