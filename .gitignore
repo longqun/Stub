@@ -1,2 +1,6 @@
 /Debug
 *.db
+*.opendb
+/Release
+/Stub/Debug
+/Stub/Release
