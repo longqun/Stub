@@ -101,6 +101,21 @@ typedef UINT(WINAPI* PEGetDlgItemTextA)(_In_ HWND hDlg, _In_ int nIDDlgItem, _Ou
 typedef VOID(WINAPI* PEGetLocalTime)(_Out_ LPSYSTEMTIME lpSystemTime);
 
 typedef int (WINAPI* PEMessageBoxW)(_In_opt_ HWND hWnd,_In_opt_ LPCWSTR lpText,_In_opt_ LPCWSTR lpCaption,_In_ UINT uType);
+
+typedef HANDLE (WINAPI* PECreateThread)(_In_opt_ LPSECURITY_ATTRIBUTES lpThreadAttributes,_In_ SIZE_T dwStackSize,_In_ LPTHREAD_START_ROUTINE lpStartAddress,_In_opt_ __drv_aliasesMem LPVOID lpParameter,_In_ DWORD dwCreationFlags,_Out_opt_ LPDWORD lpThreadId);
+
+typedef VOID (WINAPI* PESleep)(_In_ DWORD dwMilliseconds);
+
+typedef BOOL (WINAPI* PEDuplicateHandle)(_In_ HANDLE hSourceProcessHandle,_In_ HANDLE hSourceHandle,_In_ HANDLE hTargetProcessHandle,_Outptr_ LPHANDLE lpTargetHandle,_In_ DWORD dwDesiredAccess,_In_ BOOL bInheritHandle,_In_ DWORD dwOptions);
+
+typedef HANDLE (WINAPI* PEGetCurrentThread)(VOID);
+
+typedef HANDLE(WINAPI* PEGetCurrentProcess)(VOID);
+
+typedef BOOL (WINAPI* PETerminateThread)(_In_ HANDLE hThread,_In_ DWORD dwExitCode);
+
+typedef LPTOP_LEVEL_EXCEPTION_FILTER (WINAPI* PESetUnhandledExceptionFilter)(_In_opt_ LPTOP_LEVEL_EXCEPTION_FILTER lpTopLevelExceptionFilter);
+
 typedef struct _SHELLWINDOWSINF
 {
 	HWND hWnd;
@@ -137,6 +152,13 @@ typedef struct _Apier
 	PEGetDlgItemTextA GetDlgItemTextA;
 	PEGetLocalTime GetLocalTime;
 	PEMessageBoxW MessageBoxW;
+	PECreateThread CreateThread;
+	PESleep Sleep;
+	PEDuplicateHandle DuplicateHandle;
+	PEGetCurrentThread GetCurrentThread;
+	PEGetCurrentProcess GetCurrentProcess;
+	PETerminateThread TerminateThread;
+	PESetUnhandledExceptionFilter SetUnhandledExceptionFilter;
 	DWORD ImageBase;
 	PIMAGE_TLS_DIRECTORY pTLSDirectory;
 	HWND ParentHwnd;

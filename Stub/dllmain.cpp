@@ -10,18 +10,85 @@
 #include "aplib.h"
 #pragma comment(lib, "aplib.lib")
 //用来支持tls
+Apier apier;
+
+void initFunction();
+bool isDebug()
+{
+	DWORD value = 0;
+	//OD 无效
+	_asm
+	{
+		mov   eax, fs:18h     // TEB Self指针
+		mov   eax, [eax + 30h]  // PEB
+		movzx eax, [eax + 2]    // PEB->BeingDebugged
+		mov   value, eax
+	}
+	return value;
+}
+
+bool isFirstTime = true;
+
+LONG WINAPI MyUnhandledExceptionFilter(struct _EXCEPTION_POINTERS *pei)
+{
+	pei->ContextRecord->Eip += 2;
+	isFirstTime = false;
+	return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+LONG WINAPI MyUnhandledExceptionFilter1(struct _EXCEPTION_POINTERS *pei)
+{
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
+bool isDebug1()
+{
+	apier.SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
+	_asm
+	{
+		xor eax, eax
+		jmp eax
+	}
+	return false;
+}
+
+
 _declspec (thread) LPCTSTR g_strTLS = L"Stub TLS DATA";
+bool hasTest = false;
 void WINAPI TlsCallBack(PVOID dwDllHandle, DWORD dwReason, PVOID pReserved)
 {
-	if (pReserved)
-		g_strTLS = L"Nothing";
-
+	initFunction();
+	if (isDebug1())
+	{
+		_asm
+		{
+			xor eax, eax
+			jmp eax
+		}
+	}
+	//apier.SetUnhandledExceptionFilter(MyUnhandledExceptionFilter1);
+	g_strTLS = L"go";
 }
-#pragma data_seg(".CRT$XLB")
-PIMAGE_TLS_CALLBACK pTlsCallBack[] = { TlsCallBack,NULL };
-#pragma data_seg()
+#ifdef _M_IX86
+#pragma comment (linker, "/INCLUDE:__tls_used")
+#pragma comment (linker, "/INCLUDE:__tls_callback")
+#else
+#pragma comment (linker, "/INCLUDE:_tls_used")
+#pragma comment (linker, "/INCLUDE:_tls_callback")
+#endif
+//创建TLS段
+EXTERN_C
+#ifdef _M_X64
+#pragma const_seg (".CRT$XLB")
+const
+#else
+#pragma data_seg (".CRT$XLB")
+#endif
+PIMAGE_TLS_CALLBACK _tls_callback[] = { TlsCallBack, 0 };
+#pragma data_seg ()
+#pragma const_seg ()
 
-Apier apier;
+
 
 DWORD GetKernel32Base()
 {
@@ -85,6 +152,7 @@ DWORD GetGPAFunAddr()
 
 void initFunction()
 {
+
 	HMODULE hKernel32 = (HMODULE)GetKernel32Base();
 	apier.GetProcAddress = (PEGetProcAddress)GetGPAFunAddr();
 	apier.LoadLibraryExA = (PELoadLibraryExA)apier.GetProcAddress((HMODULE)hKernel32, "LoadLibraryExA");
@@ -118,6 +186,13 @@ void initFunction()
 	apier.GetDlgItemTextA = (PEGetDlgItemTextA)apier.GetProcAddress(hUser32, "GetDlgItemTextA");
 	apier.GetLocalTime = (PEGetLocalTime)apier.GetProcAddress((HMODULE)hKernel32, "GetLocalTime");
 	apier.MessageBoxW = (PEMessageBoxW)apier.GetProcAddress(hUser32, "MessageBoxW");
+	apier.CreateThread = (PECreateThread)apier.GetProcAddress(hKernel32, "CreateThread");
+	apier.Sleep = (PESleep)apier.GetProcAddress(hKernel32, "Sleep");
+	apier.DuplicateHandle = (PEDuplicateHandle)apier.GetProcAddress(hKernel32, "DuplicateHandle");
+	apier.GetCurrentProcess = (PEGetCurrentProcess)apier.GetProcAddress(hKernel32, "GetCurrentProcess");
+	apier.GetCurrentThread = (PEGetCurrentThread)apier.GetProcAddress(hKernel32, "GetCurrentThread");
+	apier.TerminateThread = (PETerminateThread)apier.GetProcAddress(hKernel32, "TerminateThread");
+	apier.SetUnhandledExceptionFilter = (PESetUnhandledExceptionFilter)apier.GetProcAddress(hKernel32, "SetUnhandledExceptionFilter");
 	IMAGE_DOS_HEADER* lpDosHeader = (IMAGE_DOS_HEADER*)apier.ImageBase;
 	IMAGE_NT_HEADERS* lpNtHeader = (IMAGE_NT_HEADERS*)(lpDosHeader->e_lfanew + (DWORD)apier.ImageBase);
 	//rva
@@ -165,7 +240,7 @@ void memsetZero(void *src, size_t length)
 /*
 	ping -n 3 127.0.0.1>nul  延迟删除
 	del  E:\code\2017\Shell\Win32Project1\Debug\Win32Project1.exe
-	del xx.bat
+	del x0x0.bat
 */
 void deleteSelf()
 {
@@ -220,11 +295,25 @@ extern "C" {
 */
 void InitTLS(PIMAGE_TLS_DIRECTORY pFileTls, PIMAGE_TLS_DIRECTORY pStubTls)
 {
+	pStubTls->AddressOfIndex = pFileTls->AddressOfIndex;
+	pStubTls->Alignment = pFileTls->Alignment;
+	pStubTls->Characteristics = pFileTls->Characteristics;
+	pStubTls->EndAddressOfRawData = pFileTls->EndAddressOfRawData;
+	pStubTls->Reserved0 = pFileTls->Reserved0;
+	pStubTls->Reserved1 = pFileTls->Reserved1;
+	pStubTls->SizeOfZeroFill = pFileTls->SizeOfZeroFill;
+	pStubTls->StartAddressOfRawData = pFileTls->StartAddressOfRawData;
+
 	PIMAGE_TLS_CALLBACK* pTlsCallBack = (PIMAGE_TLS_CALLBACK*)pFileTls->AddressOfCallBacks;
 	PIMAGE_TLS_CALLBACK* pStubCallBack = (PIMAGE_TLS_CALLBACK*)pStubTls->AddressOfCallBacks;
 	if (pTlsCallBack&&pStubCallBack)
 	{
-		while (*pTlsCallBack)
+		if (!*pTlsCallBack)
+		{
+			*pStubCallBack = 0;
+			return;
+		}
+		while (pTlsCallBack != NULL&&*pTlsCallBack)
 		{
 			(*pTlsCallBack)((PVOID)apier.ImageBase, DLL_PROCESS_ATTACH, 0);
 			*pStubCallBack = *pTlsCallBack;
@@ -447,7 +536,7 @@ void checkPassword()
 	wcex.hIconSm = NULL;
 
 	apier.RegisterClassExW(&wcex);
-	hwnd = apier.CreateWindowExW(NULL, L"password", L"登录", WS_OVERLAPPED | WS_CAPTION | WS_MINIMIZEBOX, 300, 200, 300, 180, NULL, NULL, (HINSTANCE)apier.ImageBase, NULL);
+	hwnd = apier.CreateWindowExW(NULL, L"password", L"输入试用密码", WS_OVERLAPPED | WS_CAPTION | WS_MINIMIZEBOX, 300, 200, 300, 180, NULL, NULL, (HINSTANCE)apier.ImageBase, NULL);
 	apier.ParentHwnd = hwnd;
 	if (!hwnd)
 		return;
@@ -469,15 +558,57 @@ bool isTimeout()
 {
 	SYSTEMTIME systemTime;
 	apier.GetLocalTime(&systemTime);
-	if (systemTime.wYear > g_globalVar.mTime.year ||
-		systemTime.wMonth > g_globalVar.mTime.month ||
-		systemTime.wDay > g_globalVar.mTime.day ||
-		systemTime.wHour > g_globalVar.mTime.hour ||
-		systemTime.wMinute > g_globalVar.mTime.minute ||
-		systemTime.wSecond > g_globalVar.mTime.second)
+	if (g_globalVar.mTime.year < systemTime.wYear)
 		return true;
-	return false;
+	if (g_globalVar.mTime.year > systemTime.wYear)
+		return false;
+
+	if (g_globalVar.mTime.month < systemTime.wMonth)
+		return true;
+	if (g_globalVar.mTime.month > systemTime.wMonth)
+		return false;
+
+	if (g_globalVar.mTime.day < systemTime.wDay)
+		return true;
+	if (g_globalVar.mTime.day > systemTime.wDay)
+		return false;
+
+	if (g_globalVar.mTime.hour < systemTime.wHour)
+		return true;
+	if (g_globalVar.mTime.hour > systemTime.wHour)
+		return false;
+
+	if (g_globalVar.mTime.minute < systemTime.wMinute)
+		return true;
+	if (g_globalVar.mTime.minute > systemTime.wMinute)
+		return false;
+	if (g_globalVar.mTime.second < systemTime.wSecond)
+		return true;
+	if (g_globalVar.mTime.second > systemTime.wSecond)
+		return false;
+
+	return true;
 }
+
+DWORD WINAPI ThreadFun(LPVOID pM)
+{
+
+	HANDLE parentThread = pM;
+	while (true)
+	{
+		if (isTimeout())
+		{
+
+			apier.MessageBoxW(NULL, L"超过使用期限即将删除!", L"Packer", MB_ICONERROR);
+			apier.TerminateThread(parentThread, 0);
+			deleteSelf();
+		}
+		apier.Sleep(5000);
+	}
+	return 0;
+}
+
+
 
 
 DWORD go;
@@ -485,8 +616,6 @@ void __declspec(naked)  MyMain()
 {
 	__asm pushad
 	__asm pushfd
-
-	initFunction();
 	//解压数据
 	decompress();
 
@@ -494,15 +623,18 @@ void __declspec(naked)  MyMain()
 	//deleteSelf();
 	if (g_globalVar.mPassword.setPassword)
 		checkPassword();
-	if (g_globalVar.mTime.setTime&&isTimeout())
+	if (g_globalVar.mTime.setTime)
 	{
-		apier.MessageBoxW(NULL, L"超过使用期限即将删除!", L"Packer", MB_ICONERROR);
-		deleteSelf();
+		HANDLE hThread;
+
+		apier.DuplicateHandle(apier.GetCurrentProcess(), apier.GetCurrentThread(), apier.GetCurrentProcess(), &hThread, 0, FALSE, DUPLICATE_SAME_ACCESS);
+		apier.CreateThread(NULL, 0, ThreadFun, hThread, 0, NULL);
 	}
 	//恢复IAT
 	RecoverIAT();
-	//看是否有TLS函数 如果有 则调用
-	InitTLS((PIMAGE_TLS_DIRECTORY)(g_globalVar.dwTLSVirtualAddress + apier.ImageBase), apier.pTLSDirectory);
+	//看是否有TLS函数 如果有 则调用  
+	if (g_globalVar.dwTLSVirtualAddress != 0)
+		InitTLS((PIMAGE_TLS_DIRECTORY)(g_globalVar.dwTLSVirtualAddress + apier.ImageBase), apier.pTLSDirectory);
 	go = g_globalVar.dwOrignalOEP + apier.ImageBase;
 	__asm popfd
 	__asm popad
